@@ -19,7 +19,7 @@ named, the reasoning is printed, and a user can override any of it per column.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional, Sequence
+from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -193,9 +193,8 @@ def _rule_drop_high_missing(cp: ColumnProfile, ctx: RuleContext) -> Optional[Dec
     if not ctx.config.drop_high_missing or cp.is_target:
         return None
     threshold = ctx.thresholds.missing_drop_threshold
-    cast_missing = _cast_missing(cp, ctx)
-    effective = (cp.n_missing + cast_missing) / cp.n_rows if cp.n_rows else 0.0
-    if effective < threshold:
+    cast_missing, missing_fraction = _post_cast_missing(cp, ctx)
+    if missing_fraction < threshold:
         return None
     # Quoting cp.missing_fraction alone would report "0.0% missing" on a column that is
     # about to be full of placeholders-turned-NaN, so the phrase names whichever
@@ -208,7 +207,7 @@ def _rule_drop_high_missing(cp: ColumnProfile, ctx: RuleContext) -> Optional[Dec
     elif cast_missing:
         found = (
             f"{cast_missing} placeholder value(s) become NaN when the column is cast, "
-            f"leaving {_pct(effective)} missing"
+            f"leaving {_pct(missing_fraction)} missing"
         )
     else:
         found = f"{_pct(cp.missing_fraction)} missing"
@@ -224,7 +223,8 @@ def _rule_drop_high_missing(cp: ColumnProfile, ctx: RuleContext) -> Optional[Dec
         Stage.DROP_COLUMNS,
         "drop",
         params={
-            "missing_fraction": round(cp.missing_fraction, 4),
+            "missing_fraction": round(missing_fraction, 4),
+            "n_rows": cp.n_rows,
             **({"cast_missing": cast_missing} if cast_missing else {}),
         },
         rationale=(
@@ -261,9 +261,8 @@ def _rule_missing_indicator(cp: ColumnProfile, ctx: RuleContext) -> Optional[Dec
     if cp.is_target or not ctx.config.add_missing_indicators:
         return None
     threshold = ctx.thresholds.missing_indicator_threshold
-    cast_missing = _cast_missing(cp, ctx)
-    effective = (cp.n_missing + cast_missing) / cp.n_rows if cp.n_rows else 0.0
-    if effective < threshold or effective >= 1.0:
+    cast_missing, missing_fraction = _post_cast_missing(cp, ctx)
+    if missing_fraction < threshold or missing_fraction >= 1.0:
         return None
     # Quoting cp.missing_fraction alone would report "0.0% missing" on a column that is
     # about to be full of placeholders-turned-NaN, so the phrase names whichever
@@ -285,7 +284,8 @@ def _rule_missing_indicator(cp: ColumnProfile, ctx: RuleContext) -> Optional[Dec
         Stage.MISSING_FLAG,
         "add_missing_indicator",
         params={
-            "missing_fraction": round(cp.missing_fraction, 4),
+            "missing_fraction": round(missing_fraction, 4),
+            "n_rows": cp.n_rows,
             **({"cast_missing": cast_missing} if cast_missing else {}),
         },
         rationale=(
@@ -387,6 +387,22 @@ def _cast_missing(cp: ColumnProfile, ctx: RuleContext) -> int:
     return sum(ctx.profile.sentinels.get(cp.name, {}).values())
 
 
+def _post_cast_missing(cp: ColumnProfile, ctx: RuleContext) -> Tuple[int, float]:
+    """Count and fraction of missing cells once cast-introduced NaN are counted too.
+
+    ``cp.missing_fraction`` is measured on the raw frame; this is the number the
+    decision that consumes it is actually taken on.  Centralising the arithmetic here
+    means the three rules keyed on it (``drop_high_missing``, ``missing_indicator``,
+    ``impute_by_type``) record the same fraction in ``params`` rather than each
+    reporting the pre-cast figure while its rationale describes the post-cast one --
+    see #18.  ``cp.missing_fraction`` itself is untouched and still what the rationale
+    text quotes when it deliberately contrasts "reported" against "effective".
+    """
+    cast_missing = _cast_missing(cp, ctx)
+    missing_fraction = (cp.n_missing + cast_missing) / cp.n_rows if cp.n_rows else 0.0
+    return cast_missing, missing_fraction
+
+
 def _rule_impute(cp: ColumnProfile, ctx: RuleContext) -> Optional[Decision]:
     if cp.is_target:
         return None
@@ -397,7 +413,7 @@ def _rule_impute(cp: ColumnProfile, ctx: RuleContext) -> Optional[Decision]:
     outlier_may_impute = (
         cp.semantic is SemanticType.NUMERIC and ctx.config.outlier_strategy == "impute"
     )
-    cast_missing = _cast_missing(cp, ctx)
+    cast_missing, missing_fraction = _post_cast_missing(cp, ctx)
     if cp.n_missing == 0 and not cast_missing and user is None and not outlier_may_impute:
         return None
 
@@ -481,7 +497,8 @@ def _rule_impute(cp: ColumnProfile, ctx: RuleContext) -> Optional[Decision]:
         f"impute_{strategy}",
         params={
             "strategy": strategy,
-            "missing_fraction": round(cp.missing_fraction, 4),
+            "missing_fraction": round(missing_fraction, 4),
+            "n_rows": cp.n_rows,
             **({"cast_missing": cast_missing} if cast_missing else {}),
         },
         rationale=reason,
