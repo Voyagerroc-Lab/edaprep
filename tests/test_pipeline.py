@@ -794,6 +794,75 @@ def test_column_with_real_nan_still_gets_a_missing_indicator() -> None:
     assert int(out["amount__was_missing"].sum()) == 24
 
 
+def test_missing_fraction_is_consistent_across_the_three_cast_missing_rules() -> None:
+    """#18: drop_high_missing, missing_indicator and impute_by_type must agree.
+
+    Regression: all three rules read cast-introduced placeholders (see #16 / #14), but
+    only stored the pre-cast ``cp.missing_fraction`` in ``params`` while their rationale
+    quoted the post-cast figure -- a decision whose prose says "above the 5.0% flag
+    threshold" reporting ``missing_fraction=0.0`` in the machine-readable half. One frame
+    with three columns, one per rule, and every decision must report the same
+    (post-cast) fraction plus the ``n_rows`` needed to reconstruct it.
+    """
+    gen = np.random.default_rng(41)
+    n = 300
+
+    def blanks(count: int) -> list:
+        values = [f"{v:.2f}" for v in gen.uniform(20, 8000, size=n)]
+        for i in range(count):
+            values[i] = ""
+        return values
+
+    frame = pd.DataFrame(
+        {
+            "col_impute": blanks(6),  # 2%: below the 5% indicator threshold
+            "col_indicator": blanks(24),  # 8%: indicator, then impute
+            "col_drop": blanks(210),  # 70%: above the 60% drop ceiling
+            "y": gen.integers(0, 2, size=n),
+        }
+    )
+
+    pipe = AutoPipeline(target="y", model_family="linear", random_state=0)
+    pipe.fit(frame)
+    plan = pipe.plan_
+
+    expected = {
+        "col_impute": (6, 6 / n),
+        "col_indicator": (24, 24 / n),
+        "col_drop": (210, 210 / n),
+    }
+    tracked_actions = {"drop", "add_missing_indicator"}
+    for column, (cast_missing, fraction) in expected.items():
+        for decision in plan.decisions:
+            if decision.column != column:
+                continue
+            if decision.action not in tracked_actions and not decision.action.startswith(
+                "impute_"
+            ):
+                continue
+            assert decision.params.get("cast_missing") == cast_missing, decision
+            assert decision.params["missing_fraction"] == pytest.approx(fraction), decision
+            assert decision.params["n_rows"] == n, decision
+
+    actions = {d.column: d.action for d in plan.decisions if d.action.startswith("impute_")}
+    assert actions.get("col_impute", "").startswith("impute_")
+    assert actions.get("col_indicator", "").startswith("impute_")
+    assert "col_drop" not in actions, (
+        "a dropped column must not also be scheduled for imputation"
+    )
+    indicator_columns = {
+        d.column for d in plan.decisions if d.action == "add_missing_indicator"
+    }
+    assert indicator_columns == {"col_indicator"}
+    assert "col_drop" in plan.dropped_columns
+
+    # The new key must survive a JSON round-trip like every other param.
+    restored = Plan.from_dict(json.loads(plan.to_json()))
+    before = {(d.column, d.action): d.params for d in plan.decisions}
+    after = {(d.column, d.action): d.params for d in restored.decisions}
+    assert before == after
+
+
 def test_from_dict_tolerates_settings_this_version_removed() -> None:
     """A Config saved before a setting was retired must still load.
 
