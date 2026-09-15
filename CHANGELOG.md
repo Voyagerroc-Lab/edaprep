@@ -7,6 +7,27 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html). While t
 version is `0.x`, the public API may change between minor versions; anything that does
 will be listed under **Changed** with a migration note.
 
+## [0.2.2] — 2026-09-15
+
+### Fixed
+
+- **`missing_fraction` in a decision's `params` now means the same thing across
+  `drop_high_missing`, `missing_indicator` and `impute_by_type`: the fraction the
+  decision was actually taken on, including placeholders `Stage.CAST` turns into
+  `NaN`.** Previously all three stored the pre-cast `ColumnProfile.missing_fraction`
+  while their rationale text quoted the post-cast figure — a decision reading "above
+  the 5.0% flag threshold" in its rationale would report `missing_fraction=0.0` in
+  `params`, the machine-readable half a plan diff actually compares. `cast_missing` is
+  unchanged and still present alongside it; `n_rows` is now recorded too, so both the
+  raw and effective fractions are reconstructible from a serialised plan without the
+  profile alongside it.
+
+  Centralised in a new `_post_cast_missing()` helper in `planning/rules.py`, matching
+  the design [@luziyi123448-gif](https://github.com/luziyi123448-gif) put in
+  [#17](https://github.com/bijay-odyssey/edaprep/pull/17), applied to all three rules
+  and extended with `n_rows` as [#18](https://github.com/bijay-odyssey/edaprep/issues/18)
+  asked. The rationale text is unchanged — this only corrects what `params` records.
+
 ## [0.2.1] — 2026-09-08
 
 ### Fixed
@@ -155,6 +176,7 @@ First public release. Available on PyPI: `pip install edaprep`.
 - No resampling: class imbalance is measured and reported, because resampling belongs
   after the train/test split and with the model.
 
+[0.2.2]: https://github.com/bijay-odyssey/edaprep/releases/tag/v0.2.2
 [0.2.1]: https://github.com/bijay-odyssey/edaprep/releases/tag/v0.2.1
 [0.2.0]: https://github.com/bijay-odyssey/edaprep/releases/tag/v0.2.0
 [0.1.0]: https://github.com/bijay-odyssey/edaprep/releases/tag/v0.1.0
