@@ -399,8 +399,9 @@ class Config:
                     ]
                     if warn_on_unknown:
                         warnings.warn(
-                            f"Config.from_dict ignoring unrecognised column({name!r}) setting: {key!r}. "
-                            f"It was either retired in a later version of edaprep or is misspelt.",
+                            f"Config.from_dict ignoring unrecognised column({name!r}) "
+                            f"setting: {key!r}. It was either retired in a later "
+                            f"version of edaprep or is misspelt.",
                             UserWarning,
                             stacklevel=2,
                         )
@@ -502,10 +503,11 @@ class Config:
         unknown_thresholds = sorted(set(thresholds_raw) - known_thresholds)
         if unknown_thresholds:
             warnings.warn(
-                f"Config.from_dict ignoring {len(unknown_thresholds)} unrecognised threshold setting(s): "
-                f"{', '.join(repr(k) for k in unknown_thresholds)}. They were either retired in "
-                f"a later version of edaprep or are misspelt; the rest of the "
-                f"threshold configuration was applied unchanged.",
+                f"Config.from_dict ignoring {len(unknown_thresholds)} unrecognised "
+                f"threshold setting(s): "
+                f"{', '.join(repr(k) for k in unknown_thresholds)}. They were either "
+                f"retired in a later version of edaprep or are misspelt; the rest of "
+                f"the threshold configuration was applied unchanged.",
                 UserWarning,
                 stacklevel=2,
             )

@@ -931,4 +931,3 @@ def test_set_columns_still_raises_on_unknown_setting_by_default() -> None:
     config = Config()
     with pytest.raises(ConfigurationError):
         config.set_columns({"age": {"typo_option": "bad"}})
-
