@@ -383,7 +383,12 @@ class Config:
         """Return the override record for ``name`` without creating one."""
         return self.columns.get(name)
 
-    def set_columns(self, overrides: Mapping[str, Mapping[str, Any]]) -> "Config":
+    def set_columns(
+        self,
+        overrides: Mapping[str, Mapping[str, Any]],
+        *,
+        warn_on_unknown: bool = False,
+    ) -> "Config":
         """Bulk-apply overrides: ``{"age": {"imputation": "median"}, ...}``."""
         for name, kwargs in overrides.items():
             col = self.column(name)
@@ -392,6 +397,14 @@ class Config:
                     valid = [
                         f.name for f in dataclasses.fields(ColumnConfig) if f.name != "name"
                     ]
+                    if warn_on_unknown:
+                        warnings.warn(
+                            f"Config.from_dict ignoring unrecognised column({name!r}) setting: {key!r}. "
+                            f"It was either retired in a later version of edaprep or is misspelt.",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                        continue
                     raise ConfigurationError.unknown_option(
                         f"column({name!r}) setting", key, valid
                     )
@@ -484,7 +497,20 @@ class Config:
         equally likely to be a typo, and this is the only signal you would get.
         """
         data = dict(data)
-        thresholds = Thresholds(**data.pop("thresholds", {}))
+        thresholds_raw = dict(data.pop("thresholds", {}))
+        known_thresholds = {f.name for f in dataclasses.fields(Thresholds)}
+        unknown_thresholds = sorted(set(thresholds_raw) - known_thresholds)
+        if unknown_thresholds:
+            warnings.warn(
+                f"Config.from_dict ignoring {len(unknown_thresholds)} unrecognised threshold setting(s): "
+                f"{', '.join(repr(k) for k in unknown_thresholds)}. They were either retired in "
+                f"a later version of edaprep or are misspelt; the rest of the "
+                f"threshold configuration was applied unchanged.",
+                UserWarning,
+                stacklevel=2,
+            )
+            thresholds_raw = {k: v for k, v in thresholds_raw.items() if k in known_thresholds}
+        thresholds = Thresholds(**thresholds_raw)
         columns_raw = data.pop("columns", {})
 
         known = {f.name for f in dataclasses.fields(cls)}
@@ -504,7 +530,7 @@ class Config:
         for name, kwargs in columns_raw.items():
             kwargs = dict(kwargs)
             kwargs.pop("name", None)
-            cfg.set_columns({name: kwargs})
+            cfg.set_columns({name: kwargs}, warn_on_unknown=True)
         return cfg
 
     def __repr__(self) -> str:
