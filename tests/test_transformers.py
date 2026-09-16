@@ -627,6 +627,20 @@ def test_whitespace_is_stripped() -> None:
     assert out["c"].tolist() == ["USA", "usa", "USA"]
 
 
+def test_whitespace_stripped_journal_count_excludes_nan() -> None:
+    frame = pd.DataFrame({"s": ["a ", None, "b ", None, None, "clean"]})
+    context = ctx(frame)
+    out = DataTypeInference(["s"]).fit_transform(frame, None, context)
+    assert out["s"].dropna().tolist() == ["a", "b", "clean"]
+    assert out["s"].isna().tolist() == [False, True, False, True, True, False]
+    cast_entry = next(
+        e
+        for e in context.journal.entries
+        if e.effect and "per_column" in e.effect and "s" in e.effect["per_column"]
+    )
+    assert cast_entry.effect["per_column"]["s"]["stripped"] == 2
+
+
 def test_numeric_strings_are_parsed() -> None:
     gen = np.random.default_rng(15)
     frame = pd.DataFrame({"n": [f"{v:.2f}" for v in gen.normal(50, 10, 200)]})
