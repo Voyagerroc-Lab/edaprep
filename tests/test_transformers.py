@@ -832,7 +832,9 @@ def test_text_length_features() -> None:
 
 def test_text_length_features_missing() -> None:
     frame = pd.DataFrame({"t": ["hello world", "a longer sentence here", None, "short", None]})
-    out = TextColumnHandler(strategy="length_features", columns=["t"]).fit_transform(frame, None, ctx(frame))
+    out = TextColumnHandler(strategy="length_features", columns=["t"]).fit_transform(
+        frame, None, ctx(frame)
+    )
     assert out["t__length"].iloc[0] == 11.0
     assert out["t__n_words"].iloc[0] == 2.0
     assert pd.isna(out["t__length"].iloc[2])
